@@ -414,7 +414,7 @@ void ordenar_cliente()
 {
     FILE *arquivo;
     CADASTRO cad, cad_aux;
-    int i, qtde = 0;
+    int i, qtde = 0, passo;
     
     arquivo = fopen("cliente.bin", "rb+");
     if (arquivo == NULL)
@@ -433,7 +433,8 @@ void ordenar_cliente()
         printf("\nOrdenando %d clientes por nome...\n", qtde);
         
         int trocou;
-        for (int passo = 0; passo < qtde - 1; passo++) {
+        for (passo = 0; passo < qtde - 1; passo++)
+		{
             trocou = 0;
             for (i = 0; i < qtde - 1 - passo; i++) {
                 
@@ -454,7 +455,7 @@ void ordenar_cliente()
                     trocou = 1;
                 }
             }
-            if (trocou == 0) break; 
+ 
         }
         printf("\nArquivo ordenado com sucesso.\n");
     }
@@ -769,7 +770,7 @@ void ordenar_laboratorio()
 {
     FILE *arquivo;
     LABORATORIO lab, lab_aux;
-    int i, qtde = 0;
+    int i, qtde = 0,passo;
     
     arquivo = fopen("laboratorio.bin","rb+");
     if(arquivo == NULL) {
@@ -788,7 +789,7 @@ void ordenar_laboratorio()
         
         int trocou;
         // CORRIGIDO: Lógica Bubble Sort com for aninhado e flag 'trocou'
-        for (int passo = 0; passo < qtde - 1; passo++) {
+        for (passo = 0; passo < qtde - 1; passo++) {
             trocou = 0;
             for (i = 0; i < qtde - 1 - passo; i++) {
                 
@@ -1111,7 +1112,7 @@ void ordenar_produto()
 {
     FILE *arquivo;
     PRODUTO prod, prod_aux;
-    int i, qtde = 0;
+    int i, qtde = 0,passo;
     
     arquivo = fopen("produto.bin", "rb+");
     if (arquivo == NULL)
@@ -1132,7 +1133,7 @@ void ordenar_produto()
 
         // Algoritmo Bubble Sort
         int trocou;
-        for (int passo = 0; passo < qtde - 1; passo++) {
+        for (passo = 0; passo < qtde - 1; passo++) {
             trocou = 0;
             for (i = 0; i < qtde - 1 - passo; i++) {
                 
