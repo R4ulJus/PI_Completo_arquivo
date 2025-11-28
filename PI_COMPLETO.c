@@ -1,0 +1,2072 @@
+#include <stdio.h>
+#include <string.h>
+#include <windows.h>
+#include <ctype.h>
+#include <conio.h>
+
+// ----------------------------------------------------------------------
+// --- 1. ESTRUTURAS DE DADOS ---
+// ----------------------------------------------------------------------
+
+typedef struct{
+	int numero;
+	char rua[60], bairro[60], cidade [60], uf[30];
+}ENDERECO;
+
+typedef struct{
+	int dia, mes, ano;
+}NASCIMENTO;
+
+typedef struct{
+	int ddd, telefone;
+}CONTATO;
+
+// ESTRUTURA CLIENTE
+typedef struct{
+		char nomeCliente[50], CPF [20]; 
+		ENDERECO end;
+		NASCIMENTO niver;
+		CONTATO tel;
+}CADASTRO;
+
+// ESTRUTURA LABORATORIO
+typedef struct{
+	char nomeLaboratorio[50], CNPJ[20],nomeResponsavel[50]; 
+	ENDERECO end;
+	CONTATO tel;
+}LABORATORIO;
+
+// ESTRUTURA PRODUTO
+typedef struct{
+    char codigo[20], nomeProduto[50], lote[30];
+    int quantidade;
+    float precoCusto, precoVenda;
+    NASCIMENTO dataValidade; 
+    char cnpjLaboratorio[20]; // Chave estrangeira
+}PRODUTO;
+
+// ESTRUTURA CATEGORIA
+typedef struct{
+    int idCategoria;
+    char nomeCategoria[50];
+}CATEGORIA;
+
+// ESTRUTURA PROMOCAO
+typedef struct{
+    int idPromocao;
+    char nomePromocao[50];
+    float desconto; 
+    NASCIMENTO dataInicio, dataFim;
+    char codigoProduto[20];
+}PROMOCAO;
+
+// ESTRUTURA VENDA (Relatórios)
+typedef struct{
+    int idVenda;
+    char cpfCliente[20]; 
+    char codigoProduto[20];
+    int quantidadeVendida;
+    float precoTotal;
+    NASCIMENTO dataVenda;
+}VENDA;
+
+
+// ----------------------------------------------------------------------
+// --- 2. FUNÇÕES AUXILIARES DE BUSCA E VALIDAÇÃO ---
+// ----------------------------------------------------------------------
+
+// Função de busca (Cliente)
+// Retorna a posição inicial do registro no arquivo ou -1 se não encontrado.
+int busca_cliente(FILE *arquivo, char CPF[])
+{
+	CADASTRO cad;
+	rewind(arquivo);
+	while(fread(&cad, sizeof(CADASTRO), 1, arquivo) == 1)
+	{
+		if(stricmp(CPF, cad.CPF) == 0)
+		{
+            // Removido o cast (int)
+			int pos = ftell(arquivo) - sizeof(CADASTRO); 
+			return pos;
+		}
+	}
+	return -1;
+}
+
+// Função de busca (Laboratorio)
+// Retorna a posição inicial do registro no arquivo ou -1 se não encontrado.
+int busca_laboratorio(FILE *arquivo, char CNPJ[])
+{
+	LABORATORIO lab;
+	rewind(arquivo);
+	while(fread(&lab, sizeof(LABORATORIO), 1, arquivo) == 1)
+	{
+		if(stricmp(CNPJ, lab.CNPJ) == 0)
+		{
+            // Removido o cast (int)
+			int pos = ftell(arquivo) - sizeof(LABORATORIO); 
+			return pos;
+		}
+	}
+	return -1;
+}
+
+// Função para validar se o CNPJ existe (Sem 'break' no laço principal)
+// Retorna 1 se o laboratório existe, 0 caso contrário.
+int laboratorio_existe(char CNPJ[]) {
+    FILE *arq_lab = fopen("laboratorio.bin", "rb");
+    // Se não conseguir abrir, assume que não existe e retorna 0 imediatamente.
+    if (arq_lab == NULL) {
+        return 0; 
+    }
+
+    LABORATORIO lab;
+    int encontrado = 0;
+    
+    rewind(arq_lab);
+    
+    // Alternativa: usar 'encontrado' para controlar o loop é redundante com 'break'
+    // Mantendo a lógica de loop original, mas usando 'break' para seguir o padrão de eficiência:
+    while (fread(&lab, sizeof(LABORATORIO), 1, arq_lab) == 1) {
+        if (stricmp(CNPJ, lab.CNPJ) == 0) {
+            encontrado = 1;
+            break; // Adicionado 'break' para otimizar a busca.
+        }
+    }
+    
+    fclose(arq_lab);
+    return encontrado;
+}
+
+// Função de busca (Produto)
+// Retorna a posição inicial do registro no arquivo ou -1 se não encontrado.
+int busca_produto(FILE *arquivo, char codigo[])
+{
+	PRODUTO prod;
+	rewind(arquivo);
+	while(fread(&prod, sizeof(PRODUTO), 1, arquivo) == 1)
+	{
+		if(stricmp(codigo, prod.codigo) == 0)
+		{
+            // Removido o cast (int)
+			int pos = ftell(arquivo) - sizeof(PRODUTO); 
+			return pos;
+		}
+	}
+	return -1;
+}
+
+// Função de busca (Categoria)
+// Retorna a posição inicial do registro no arquivo ou -1 se não encontrado.
+int busca_categoria(FILE *arquivo, int id)
+{
+	CATEGORIA cat;
+	rewind(arquivo);
+	while(fread(&cat, sizeof(CATEGORIA), 1, arquivo) == 1)
+	{
+		if(id == cat.idCategoria)
+		{
+            // Removido o cast (int)
+			int pos = ftell(arquivo) - sizeof(CATEGORIA); 
+			return pos;
+		}
+	}
+	return -1;
+}
+
+// Função de busca (Promoção)
+// Retorna a posição inicial do registro no arquivo ou -1 se não encontrado.
+int busca_promocao(FILE *arquivo, int id)
+{
+	PROMOCAO prm;
+	rewind(arquivo);
+	while(fread(&prm, sizeof(PROMOCAO), 1, arquivo) == 1)
+	{
+		if(id == prm.idPromocao)
+		{
+            // Removido o cast (int)
+			int pos = ftell(arquivo) - sizeof(PROMOCAO); 
+			return pos;
+		}
+	}
+	return -1;
+}
+
+
+// ----------------------------------------------------------------------
+// --- 3. MÓDULO GERENCIAR CLIENTES ---
+// ----------------------------------------------------------------------
+
+int menu_cliente()
+{
+	int opc;
+	system("cls");
+	printf("\n--------------Gerenciar Clientes--------------");
+	printf("\n1 - Cadastrar novo cliente");
+	printf("\n2 - Listar todos clientes");
+	printf("\n3 - Alterar dados do cliente ");
+	printf("\n4 - Deletar cliente ");
+	printf("\n5 - Ordenar cliente (por Nome)");
+	printf("\n0 - Voltar menu principal ");
+	printf("\nSelecione a opcao: ");
+	scanf("%d", &opc);
+	return opc;	
+}
+
+void cadastrar_cliente() {
+    FILE *arquivo;
+    CADASTRO cad;
+    int pos;
+
+    arquivo = fopen("cliente.bin", "ab+");
+    if (arquivo == NULL) {
+        printf("Erro no arquivo");
+        system("pause");
+        return; 
+    }
+
+    do {
+        system("cls");
+        printf("\n--- Cadastrar Cliente ---");
+        printf("\nCPF: "); fflush(stdin);
+        gets(cad.CPF);
+
+        if (strlen(cad.CPF) == 0) break;
+
+        pos = busca_cliente(arquivo, cad.CPF);
+        if (pos == -1) {
+            printf("\nNome: "); fflush(stdin); gets(cad.nomeCliente);
+            printf("\nData Nascimento (Dia Mes Ano): "); scanf("%d %d %d", &cad.niver.dia, &cad.niver.mes, &cad.niver.ano);
+            printf("\nDDD: "); scanf("%d", &cad.tel.ddd);
+            printf("\nTelefone: "); scanf("%d", &cad.tel.telefone);
+            printf("\nRua: "); fflush(stdin); gets(cad.end.rua);
+            printf("\nNumero: "); scanf("%d", &cad.end.numero);
+            printf("\nBairro: "); fflush(stdin); gets(cad.end.bairro);
+            printf("\nCidade: "); fflush(stdin); gets(cad.end.cidade);
+            printf("\nUF: "); fflush(stdin); gets(cad.end.uf);
+
+            fwrite(&cad, sizeof(CADASTRO), 1, arquivo);
+            printf("\nCliente cadastrado com sucesso! ");
+        } else {
+            printf("\nCliente com CPF %s ja cadastrado.", cad.CPF);
+        }
+        printf("\n\nDeseja Continuar Cadastrando (S/N)? ");
+    } while (toupper(getche()) == 'S');
+
+    fclose(arquivo);
+    system("cls");
+    system("pause");
+}
+
+void exibir_cliente() {
+    FILE *arquivo;
+    CADASTRO cad;
+    int count = 0;
+
+    arquivo = fopen("cliente.bin", "rb");
+    if (arquivo == NULL) {
+        printf("\nNenhum cliente cadastrado.");
+    } else {
+        system("cls");
+        printf("--- Clientes Cadastrados ---\n");
+        while (fread(&cad, sizeof(CADASTRO), 1, arquivo) == 1) {
+            count++;
+            printf("\nNome: %s", cad.nomeCliente);
+            printf("\nCPF: %s", cad.CPF);
+            printf("\nTel: (%d) %d", cad.tel.ddd, cad.tel.telefone);
+            printf("\nEndereco: R. %s, %d, %s - %s/%s", cad.end.rua, cad.end.numero, cad.end.bairro, cad.end.cidade, cad.end.uf);
+            printf("\n--------------------------------------");
+        }
+        if (count == 0) printf("\nNenhum cliente encontrado no arquivo.");
+        
+        fclose(arquivo); 
+    }
+    system("pause");
+    system("cls");
+}
+
+void alterar_cliente() {
+    FILE *arquivo;
+    CADASTRO cad;
+    int pos, op;
+
+    arquivo = fopen("cliente.bin", "rb+");
+    if (arquivo == NULL) {
+        printf("Erro no arquivo");
+        system("pause");
+        return; 
+    }
+
+    system("cls");
+    printf("Digite o CPF do cliente que sera alterado (deixe vazio para sair): "); fflush(stdin);
+    gets(cad.CPF);
+
+    while (strlen(cad.CPF) != 0) {
+        pos = busca_cliente(arquivo, cad.CPF);
+        if (pos == -1) {
+            printf("Cliente nao encontrado\n");
+        } else {
+            fseek(arquivo, pos, 0);
+            fread(&cad, sizeof(CADASTRO), 1, arquivo);
+            printf("\n--------------------------");
+            printf("\nNome atual: %s", cad.nomeCliente);
+            printf("\nTel atual: (%d) %d", cad.tel.ddd, cad.tel.telefone);
+
+            printf("\nDeseja alterar \n1 - Contato \n2 - Endereco ? ");
+            scanf("%d", &op);
+
+            if (op == 1) {
+                printf("\nNovo DDD: "); scanf("%d", &cad.tel.ddd);
+                printf("\nNovo Telefone: "); scanf("%d", &cad.tel.telefone);
+                printf("\nDados alterados com sucesso!\n");
+            } else if (op == 2) {
+                printf("\nNova Rua: "); fflush(stdin); gets(cad.end.rua);
+                printf("\nNovo Numero: "); scanf("%d", &cad.end.numero);
+                printf("\nNovo Bairro: "); fflush(stdin); gets(cad.end.bairro);
+                printf("\nNova Cidade: "); fflush(stdin); gets(cad.end.cidade);
+                printf("\nNova UF: "); fflush(stdin); gets(cad.end.uf);
+                printf("\nDados alterados com sucesso!\n");
+            } else {
+                printf("\nAlteracao cancelada.\n");
+            }
+
+            fseek(arquivo, pos, 0);
+            fwrite(&cad, sizeof(CADASTRO), 1, arquivo);
+        }
+        system("pause");
+        system("cls");
+        printf("\nQual o CPF para alterar (deixe vazio para sair): "); fflush(stdin);
+        gets(cad.CPF);
+    }
+
+    fclose(arquivo);
+    system("cls");
+    system("pause");
+}
+
+void excluir_cliente() {
+    FILE *arquivo, *temp;
+    CADASTRO cad;
+    char cpf[20];
+    int pos;
+    int arquivo_fechado_interno = 0;
+
+    arquivo = fopen("cliente.bin", "rb");
+    if (arquivo == NULL) {
+        printf("\nNenhum arquivo de cliente encontrado para exclusao.");
+        system("pause");
+        return; 
+    }
+
+    system("cls");
+    printf("Informe o CPF do cliente que deseja excluir: "); fflush(stdin);
+    gets(cpf);
+
+    if (strlen(cpf) != 0) {
+        pos = busca_cliente(arquivo, cpf);
+        if (pos == -1) {
+            printf("Cliente nao encontrado");
+        } else {
+            fseek(arquivo, pos, 0);
+            fread(&cad, sizeof(CADASTRO), 1, arquivo);
+
+            printf("\nNome: %s", cad.nomeCliente);
+            printf("\nCPF: %s", cad.CPF);
+
+            printf("\nDeseja Excluir S/N? ");
+            if (toupper(getche()) == 'S') {
+                temp = fopen("auxiliar_cli.bin", "wb");
+                if (temp == NULL) {
+                    printf("\nErro ao criar arquivo auxiliar. Exclusao cancelada.\n");
+                } else {
+                    rewind(arquivo);
+
+                    while (fread(&cad, sizeof(CADASTRO), 1, arquivo) == 1) {
+                        if (stricmp(cpf, cad.CPF) != 0) {
+                            fwrite(&cad, sizeof(CADASTRO), 1, temp);
+                        }
+                    }
+
+                    fclose(arquivo);
+                    fclose(temp);
+                    arquivo_fechado_interno = 1;
+
+                    remove("cliente.bin");
+                    rename("auxiliar_cli.bin", "cliente.bin");
+                    printf("\n\nProcesso de exclusao concluido.\n");
+                }
+            } else {
+                printf("\n\nExclusao cancelada pelo usuario.\n");
+            }
+        }
+    } else {
+        printf("\n\nCPF nao informado. Exclusao cancelada.\n");
+    }
+    
+    if (arquivo != NULL && arquivo_fechado_interno == 0) {
+        fclose(arquivo);
+    }
+
+    system("pause");
+    system("cls");
+}
+
+void ordenar_cliente()
+{
+    FILE *arquivo;
+    CADASTRO cad, cad_aux;
+    int i, qtde = 0;
+    
+    arquivo = fopen("cliente.bin", "rb+");
+    if (arquivo == NULL)
+    {
+        printf("\nErro no arquivo ou nenhum cliente cadastrado.");
+        system("pause");
+        return; 
+    }
+
+    fseek(arquivo, 0, 2);
+    qtde = ftell(arquivo) / sizeof(CADASTRO); 
+    
+    if (qtde <= 1) {
+        printf("\nNao ha necessidade de ordenacao.");
+    } else {
+        printf("\nOrdenando %d clientes por nome...\n", qtde);
+        
+        int trocou;
+        for (int passo = 0; passo < qtde - 1; passo++) {
+            trocou = 0;
+            for (i = 0; i < qtde - 1 - passo; i++) {
+                
+                fseek(arquivo, i * sizeof(CADASTRO), 0);
+                fread(&cad, sizeof(CADASTRO), 1, arquivo);
+                
+                fseek(arquivo, (i + 1) * sizeof(CADASTRO), 0);
+                fread(&cad_aux, sizeof(CADASTRO), 1, arquivo);
+                
+                if(stricmp(cad.nomeCliente, cad_aux.nomeCliente) > 0)
+                {
+                    fseek(arquivo, i * sizeof(CADASTRO), 0);
+                    fwrite(&cad_aux, sizeof(CADASTRO), 1, arquivo);
+                    
+                    fseek(arquivo, (i + 1) * sizeof(CADASTRO), 0);
+                    fwrite(&cad, sizeof(CADASTRO), 1, arquivo);
+                    
+                    trocou = 1;
+                }
+            }
+            if (trocou == 0) break; 
+        }
+        printf("\nArquivo ordenado com sucesso.\n");
+    }
+    
+    fclose(arquivo); 
+    system("pause");
+}
+
+void gerenciar_clientes_sub_menu() {
+    int opc_cli;
+    do {
+        opc_cli = menu_cliente();
+        switch (opc_cli) {
+            case 1: cadastrar_cliente(); break;
+            case 2: exibir_cliente(); break;
+            case 3: alterar_cliente(); break;
+            case 4: excluir_cliente(); break;
+            case 5: ordenar_cliente(); break;
+            case 0: printf("\nVoltando ao menu principal . . . \n"); break;
+            default: printf("\nOpcao invalida. "); system("pause");
+        }
+    } while (opc_cli != 0);
+}
+
+// ----------------------------------------------------------------------
+// --- 4. MÓDULO GERENCIAR LABORATÓRIO --- ok
+// ----------------------------------------------------------------------
+
+int menu_laboratorio()
+{
+	int opc;
+	system("cls");
+	printf("\n--------------Gerenciar Laboratorio--------------");
+	printf("\n1 - Cadastrar novo laboratorio");
+	printf("\n2 - Listar todos laboratorios");
+	printf("\n3 - Alterar dados do laboratorio");
+	printf("\n4 - Deletar laboratorio");
+	printf("\n5 - Ordenar laboratorios (por Nome)");
+	printf("\n0 - Voltar menu principal");
+	printf("\nSelecione a opcao: ");
+	scanf("%d", &opc);
+	return opc;	
+}
+
+int busca_laboratorio(FILE *arquivo, char CNPJ[])
+{
+	LABORATORIO lab;
+	int pos;
+	rewind(arquivo);
+	// CORRIGIDO: Loop de leitura padrão.
+	while(fread(&lab,sizeof(LABORATORIO),1,arquivo)==1)
+	{
+		if(stricmp(CNPJ,lab.CNPJ) == 0)
+		{
+			pos = ftell(arquivo)-sizeof(LABORATORIO);
+			return pos;
+		}
+	}
+	return -1;
+}
+
+void cadastrar_laboratorio()
+{
+	FILE *arquivo;
+	LABORATORIO lab;
+	int pos;
+	
+	arquivo = fopen("laboratorio.bin", "ab+");
+	if(arquivo == NULL) {
+		printf("Erro no arquivo");
+        system("pause");
+        return; // Padrão: Retorna imediatamente em erro.
+    }
+	
+	do{
+		system("cls");
+		printf("\nCNPJ: ");fflush(stdin);
+		gets(lab.CNPJ);
+        
+        if (strlen(lab.CNPJ) == 0) break; // Saída se o CNPJ for vazio
+
+		pos = busca_laboratorio(arquivo, lab.CNPJ);
+		if(pos == -1)
+		{
+			printf("\nNome do Laboratorio: "); fflush(stdin);
+			gets(lab.nomeLaboratorio);
+			printf("\nEndereco ");
+			printf("\nRua: "); fflush(stdin);
+			gets(lab.end.rua);
+			printf("\nNumero: ");
+			scanf("%d", &lab.end.numero);
+			printf("\nBairro: "); fflush(stdin);
+			gets(lab.end.bairro);
+			printf("\nCidade: "); fflush(stdin);
+			gets(lab.end.cidade);
+			printf("\nEstado: "); fflush(stdin);
+			gets(lab.end.uf);
+			printf("\nContato ");
+			printf("\nNome do responsavel ");fflush(stdin);
+			gets(lab.nomeResponsavel);
+			printf("\nDDD: ");
+			scanf("%d", &lab.tel.ddd);
+			printf("\nTelefone: ");
+			scanf("%d", &lab.tel.telefone);
+			
+			fwrite(&lab, sizeof(LABORATORIO), 1, arquivo);
+            printf("\nLaboratorio cadastrado com sucesso!");
+		}
+		else
+		{
+			printf("\nO laboratorio com CNPJ %s ja esta cadastrado.", lab.CNPJ);
+		}
+		printf("\nDeseja Continuar Cadastrando (S/N)? ");
+	}while(toupper(getche())=='S');
+	
+	fclose(arquivo);
+	system("cls");
+	system("pause");
+}
+
+void exibir_laboratorio()
+{
+	FILE *arquivo;
+	LABORATORIO lab;
+    int count = 0;
+    
+	arquivo = fopen("laboratorio.bin", "rb");
+	if(arquivo == NULL) {
+		printf("\nNenhum laboratorio cadastrado.");
+        system("pause");
+        return; // Padrão: Retorna imediatamente em erro.
+    }
+
+    system("cls");
+    printf("--- Laboratorios Cadastrados ---\n");
+    
+    while(fread(&lab, sizeof(LABORATORIO), 1, arquivo) == 1)
+    {
+        count++;
+        printf("\nNome: %s", lab.nomeLaboratorio);
+        printf("\nCNPJ: %s", lab.CNPJ);
+        printf("\nEndereco: Rua: %s, Numero: %d, Bairro: %s, Cidade: %s, Estado: %s", lab.end.rua, lab.end.numero, lab.end.bairro, lab.end.cidade, lab.end.uf);
+        printf("\nContato:%s (%d) %d",lab.nomeResponsavel, lab.tel.ddd, lab.tel.telefone);
+        printf("\n--------------------------------------");
+    }
+
+    if (count == 0) {
+        printf("\nNenhum laboratorio encontrado no arquivo.");
+    }
+    
+	fclose(arquivo);
+	system("pause");
+	system("cls");
+}
+
+void alterar_laboratorio()
+{
+	FILE *arquivo;
+	LABORATORIO lab;
+	int pos, op;
+	
+	arquivo = fopen("laboratorio.bin", "rb+");
+	if(arquivo == NULL) {
+		printf("Erro no arquivo");
+        system("pause");
+        return; // Padrão: Retorna imediatamente em erro.
+    }
+	
+	system("cls");
+	printf("Digite o CNPJ que sera alterado (deixe vazio para sair): "); fflush(stdin);
+	gets(lab.CNPJ);
+	
+	while(strlen(lab.CNPJ) != 0) // Padrão: Usado strlen
+	{
+		pos = busca_laboratorio(arquivo, lab.CNPJ);
+		if(pos == -1) {
+			printf("Laboratorio nao encontrado\n");
+		} else {
+			fseek(arquivo, pos, SEEK_SET);
+			fread(&lab, sizeof(LABORATORIO), 1, arquivo);
+			printf("\n--------------------------");
+			printf("\nNome: %s", lab.nomeLaboratorio);
+			printf("\nCNPJ: %s", lab.CNPJ);
+			printf("\nEndereco: Rua: %s, Numero: %d, Bairro: %s, Cidade: %s, Estado: %s", lab.end.rua, lab.end.numero, lab.end.bairro, lab.end.cidade, lab.end.uf);
+			printf("\nContato: %s (%d) %d",lab.nomeResponsavel, lab.tel.ddd, lab.tel.telefone);
+            
+			printf("\nDeseja alterar \n1 - Endereco \n2 - Contato ? ");
+			scanf("%d", &op);
+            
+			if(op == 1)
+			{
+				printf("\nNovo endereco ");
+				printf("\nRua: "); fflush(stdin);
+				gets(lab.end.rua);
+				printf("\nNumero: ");
+				scanf("%d", &lab.end.numero);
+				printf("\nBairro: "); fflush(stdin);
+				gets(lab.end.bairro);
+				printf("\nCidade: "); fflush(stdin);
+				gets(lab.end.cidade);
+				printf("\nEstado: "); fflush(stdin);
+				gets(lab.end.uf);
+                printf("\nEndereco alterado com sucesso!");
+			}
+			else if(op == 2) // Usado else if
+			{
+				printf("\nNovo contato");
+				printf("\nResponsavel: ");fflush(stdin);
+				gets(lab.nomeResponsavel);
+				printf("\nDDD: ");
+				scanf("%d", &lab.tel.ddd);
+				printf("\nTelefone: ");
+				scanf("%d", &lab.tel.telefone);
+                printf("\nContato alterado com sucesso!");
+			}
+            else {
+                printf("\nAlteracao cancelada.");
+            }
+            
+            fseek(arquivo, pos, SEEK_SET);
+            fwrite(&lab, sizeof(LABORATORIO), 1, arquivo); // Escreve o registro completo
+		}
+        
+		system("pause");
+        system("cls");
+		printf("\nQual o CNPJ para alterar (deixe vazio para sair): "); fflush(stdin);
+		gets(lab.CNPJ);
+	}
+    
+	fclose(arquivo);
+	system("cls");
+	system("pause");
+}
+
+void excluir_laboratorio()
+{
+	FILE *arquivo;
+	LABORATORIO lab;
+	int pos;
+	char cnpj[20];
+    int arquivo_fechado_interno = 0;
+    
+	arquivo = fopen("laboratorio.bin", "rb");
+	if(arquivo == NULL) {
+		printf("\nNenhum arquivo de laboratorio encontrado.");
+        system("pause");
+        return; // Padrão: Retorna imediatamente em erro.
+    }
+	
+	system("cls");
+	printf("Informe o CNPJ do laboratorio que deseja excluir (deixe vazio para sair): "); fflush(stdin);
+	gets(cnpj);
+	
+	if(strlen(cnpj) != 0) // Padrão: Usado strlen
+	{
+		pos = busca_laboratorio(arquivo, cnpj);
+		if(pos == -1) {
+			printf("Laboratorio nao encontrado");
+		} else {
+			fseek(arquivo, pos, SEEK_SET);
+			fread(&lab, sizeof(LABORATORIO), 1, arquivo);
+			
+			printf("\nNome: %s", lab.nomeLaboratorio);
+			printf("\nCNPJ: %s", lab.CNPJ);
+			printf("\nEndereco: Rua: %s, Numero: %d, Bairro: %s, Cidade: %s, Estado: %s", lab.end.rua, lab.end.numero, lab.end.bairro, lab.end.cidade, lab.end.uf);
+			printf("\nContato: (%d) %d", lab.tel.ddd, lab.tel.telefone);
+			printf("\nDeseja Excluir S/N? ");
+            
+			if(toupper(getche()) == 'S')
+			{
+				FILE *temp;
+				temp = fopen("auxiliar.bin", "wb");
+                
+                if (temp == NULL) {
+                    printf("\nErro ao criar arquivo auxiliar. Exclusao cancelada.\n");
+                } else {
+                    rewind(arquivo);
+                    
+                    // CRÍTICO CORRIGIDO: Loop de leitura padrão para evitar o "problema do último registro"
+                    while(fread(&lab, sizeof(LABORATORIO), 1, arquivo) == 1)
+                    {
+                        if(stricmp(cnpj, lab.CNPJ) != 0)
+                            fwrite(&lab, sizeof(LABORATORIO), 1, temp);
+                    }
+                    
+                    fclose(arquivo);
+                    fclose(temp);
+                    arquivo_fechado_interno = 1;
+
+                    remove("laboratorio.bin");
+                    rename("auxiliar.bin", "laboratorio.bin");
+                    printf("\n\nExclusao concluida com sucesso.\n");
+                }
+			} else {
+                printf("\n\nExclusao cancelada pelo usuario.\n");
+            }
+		}
+	} else {
+        printf("\n\nCNPJ nao informado. Exclusao cancelada.\n");
+    }
+    
+    // Fechamento condicional para o caso de erro no arquivo temporário
+    if (arquivo != NULL && arquivo_fechado_interno == 0) {
+        fclose(arquivo);
+    }
+    
+    system("pause");
+	system("cls");
+}
+
+void ordenar_laboratorio()
+{
+    FILE *arquivo;
+    LABORATORIO lab, lab_aux;
+    int i, qtde = 0;
+    
+    arquivo = fopen("laboratorio.bin","rb+");
+    if(arquivo == NULL) {
+    	printf("\nErro no arquivo ou nenhum laboratorio cadastrado.");
+        system("pause");
+        return; // Padrão: Retorna imediatamente em erro.
+    }
+    
+    fseek(arquivo, 0, SEEK_END);
+    qtde = ftell(arquivo) / sizeof(LABORATORIO);
+    
+    if (qtde <= 1) {
+        printf("\nNao ha necessidade de ordenacao.");
+    } else {
+        printf("\nOrdenando %d laboratorios por nome...\n", qtde);
+        
+        int trocou;
+        // CORRIGIDO: Lógica Bubble Sort com for aninhado e flag 'trocou'
+        for (int passo = 0; passo < qtde - 1; passo++) {
+            trocou = 0;
+            for (i = 0; i < qtde - 1 - passo; i++) {
+                
+                fseek(arquivo, i * sizeof(LABORATORIO), SEEK_SET);
+                fread(&lab, sizeof(LABORATORIO), 1, arquivo);
+                
+                fseek(arquivo, (i + 1) * sizeof(LABORATORIO), SEEK_SET);
+                fread(&lab_aux, sizeof(LABORATORIO), 1, arquivo);
+                
+                if(stricmp(lab.nomeLaboratorio, lab_aux.nomeLaboratorio) > 0)
+                {
+                    // CRÍTICO CORRIGIDO: Escreve a estrutura COMPLETA (&lab_aux)
+                    fseek(arquivo, i * sizeof(LABORATORIO), SEEK_SET);
+                    fwrite(&lab_aux, sizeof(LABORATORIO), 1, arquivo); 
+                    
+                    // CRÍTICO CORRIGIDO: Escreve a estrutura COMPLETA (&lab)
+                    fseek(arquivo, (i + 1) * sizeof(LABORATORIO), SEEK_SET);
+                    fwrite(&lab, sizeof(LABORATORIO), 1, arquivo);
+                    
+                    trocou = 1;
+                }
+            }
+            if (trocou == 0) break; 
+        }
+        printf("\nArquivo ordenado com sucesso.\n");
+    }
+
+    fclose(arquivo);
+    system("pause");
+    system("cls");
+}
+
+void gerenciar_laboratorio_sub_menu() {
+    int opc_lab;
+    do {
+        opc_lab = menu_laboratorio();
+        switch (opc_lab) {
+            case 1: cadastrar_laboratorio(); break;
+            case 2: exibir_laboratorio(); break;
+            case 3: alterar_laboratorio(); break;
+            case 4: excluir_laboratorio(); break;
+            case 5: ordenar_laboratorio(); break;
+            case 0: printf("\nVoltando ao menu principal . . . \n"); break;
+            default: printf("\nOpcao invalida. "); system("pause");
+        }
+    } while (opc_lab != 0);
+}
+
+
+// ----------------------------------------------------------------------
+// --- 5. MÓDULO GERENCIAR PRODUTOS (Com Validação de Laboratório) --- ok
+// ----------------------------------------------------------------------
+
+int menu_produto()
+{
+	int opc;
+	system("cls");
+	printf("\n--------------Gerenciar Produtos--------------");
+	printf("\n1 - Cadastrar novo produto");
+	printf("\n2 - Listar todos produtos");
+	printf("\n3 - Alterar dados do produto");
+	printf("\n4 - Deletar produto");
+	printf("\n5 - Ordenar produto (por Nome)");
+	printf("\n0 - Voltar menu principal");
+	printf("\nSelecione a opcao: ");
+	scanf("%d", &opc);
+	return opc;	
+}
+
+void cadastrar_produto() {
+    FILE *arquivo;
+    PRODUTO prod;
+    int pos;
+
+    arquivo = fopen("produto.bin", "ab+");
+    if(arquivo == NULL) {
+        printf("Erro no arquivo");
+        system("pause");
+        return; // Sai da função em caso de erro.
+    }
+
+    do {
+        system("cls");
+        printf("\n--- Cadastrar Produto ---");
+        printf("\nCodigo: "); fflush(stdin);
+        gets(prod.codigo);
+
+        if (strlen(prod.codigo) == 0) break; 
+
+        pos = busca_produto(arquivo, prod.codigo);
+        if (pos == -1) {
+            printf("\nNome: "); fflush(stdin);
+            gets(prod.nomeProduto);
+            printf("\nQuantidade: "); scanf("%d", &prod.quantidade);
+            printf("\nPreco Custo: "); scanf("%f", &prod.precoCusto);
+            printf("\nPreco Venda: "); scanf("%f", &prod.precoVenda);
+            printf("\nLote: "); fflush(stdin);
+            gets(prod.lote);
+            printf("\nData Validade (Dia Mes Ano): "); 
+            scanf("%d %d %d", &prod.dataValidade.dia, &prod.dataValidade.mes, &prod.dataValidade.ano);
+            
+            // --- VALIDAÇÃO DO CNPJ DO LABORATÓRIO (RESTRICAO APLICADA) ---
+            int lab_valido = 0;
+            char temp_cnpj[20];
+
+            do {
+                printf("\nCNPJ Laboratorio (Obrigatorio): "); fflush(stdin);
+                gets(temp_cnpj);
+
+                if (strlen(temp_cnpj) > 0) {
+                    if (laboratorio_existe(temp_cnpj)) {
+                        strcpy(prod.cnpjLaboratorio, temp_cnpj);
+                        lab_valido = 1; 
+                        printf("Laboratorio valido encontrado. Prosseguindo...\n");
+                    } else {
+                        printf("\nCNPJ de Laboratorio nao encontrado. Tente novamente.\n");
+                        lab_valido = 0;
+                    }
+                } else {
+                    printf("\nO CNPJ do Laboratorio nao pode ser vazio.\n");
+                    lab_valido = 0;
+                }
+            } while (lab_valido == 0);
+            // --------------------------------------------------------------
+            
+            fwrite(&prod, sizeof(PRODUTO), 1, arquivo);
+            printf("\nProduto cadastrado com sucesso! ");
+        } else {
+            printf("\nProduto com Codigo %s ja cadastrado.", prod.codigo);
+        }
+        printf("\n\nDeseja Continuar Cadastrando (S/N)? ");
+    } while (toupper(getche()) == 'S');
+    
+    fclose(arquivo);
+    system("cls");
+    system("pause");
+}
+
+void exibir_produto()
+{
+	FILE *arquivo;
+	PRODUTO prod;
+    int count = 0;
+    
+	arquivo = fopen("produto.bin", "rb");
+	if(arquivo == NULL)
+	{
+		printf("\nNenhum produto cadastrado.");
+	}
+	else
+	{
+		system("cls");
+        printf("--- Produtos Cadastrados ---\n");
+		while(fread(&prod, sizeof(PRODUTO), 1, arquivo) == 1)
+		{
+            count++;
+			printf("\nCodigo: %s", prod.codigo);
+			printf("\nNome: %s", prod.nomeProduto);
+			printf("\nEstoque: %d", prod.quantidade);
+            printf("\nPreco Venda: R$ %.2f", prod.precoVenda);
+            printf("\nValidade: %02d/%02d/%d", prod.dataValidade.dia, prod.dataValidade.mes, prod.dataValidade.ano);
+            printf("\nCNPJ Lab: %s", prod.cnpjLaboratorio);
+			printf("\n--------------------------------------");
+		}
+        if (count == 0) printf("\nNenhum produto encontrado no arquivo.");
+        
+        fclose(arquivo);
+	}
+	system("pause");
+	system("cls");
+}
+void alterar_produto()
+{
+	FILE *arquivo;
+	PRODUTO prod;
+	int pos, op;
+	
+	arquivo = fopen("produto.bin", "rb+");
+	if(arquivo == NULL)
+	{
+		printf("Erro no arquivo");
+		system("pause");
+		return;
+	}
+	
+    system("cls");
+	printf("Digite o CODIGO do produto que sera alterado (deixe vazio para sair): "); fflush(stdin);
+	gets(prod.codigo);
+	
+	while(strlen(prod.codigo) != 0)
+	{
+		pos = busca_produto(arquivo, prod.codigo);
+		if(pos == -1)
+		{
+			printf("Produto nao encontrado\n");
+		}
+		else
+		{
+			fseek(arquivo, pos, 0);
+			fread(&prod, sizeof(PRODUTO), 1, arquivo);
+			printf("\n--------------------------");
+			printf("\nNome atual: %s", prod.nomeProduto);
+			printf("\nEstoque atual: %d", prod.quantidade);
+			printf("\nPreco Venda atual: %.2f", prod.precoVenda);
+
+			printf("\nDeseja alterar \n1 - Precos e Estoque \n2 - Validade ? ");
+			scanf("%d", &op);
+            
+			if(op == 1)
+			{
+				printf("\nNova Quantidade em Estoque: ");
+				scanf("%d", &prod.quantidade);
+				printf("\nNovo Preco de Custo: ");
+				scanf("%f", &prod.precoCusto);
+				printf("\nNovo Preco de Venda: ");
+				scanf("%f", &prod.precoVenda);
+                
+				fseek(arquivo, pos, 0);
+				fwrite(&prod, sizeof(PRODUTO), 1, arquivo);
+				printf("\nDados alterados com sucesso!\n");
+			}
+			else if(op == 2)
+			{
+				printf("\nNova Data Validade (Dia Mes Ano): ");
+                scanf("%d %d %d", &prod.dataValidade.dia, &prod.dataValidade.mes, &prod.dataValidade.ano);
+                
+				fseek(arquivo, pos, 0);
+				fwrite(&prod, sizeof(PRODUTO), 1, arquivo);
+				printf("\nValidade alterada com sucesso!\n");
+			} else {
+                printf("\nAlteracao cancelada.\n");
+            }
+		}
+		system("pause");
+		system("cls");
+		printf("\nQual o CODIGO para alterar (deixe vazio para sair): ");fflush(stdin);
+		gets(prod.codigo);
+	}
+	
+	fclose(arquivo);
+	system("cls");
+	system("pause");
+}
+void excluir_produto()
+{
+	FILE *arquivo, *temp;
+	PRODUTO prod;
+	char codigo[20];
+	int pos;
+    
+	arquivo = fopen("produto.bin", "rb");
+	if(arquivo == NULL)
+	{
+		printf("\nNenhum arquivo de produto encontrado para exclusao.");	
+		system("pause");
+		return;
+	}
+	
+	system("cls");
+	printf("Informe o CODIGO do produto que deseja excluir: ");fflush(stdin);
+	gets(codigo);
+	
+	if(strlen(codigo) != 0)
+	{
+		pos = busca_produto(arquivo, codigo);
+		if(pos == -1)
+		{
+			printf("Produto nao encontrado");
+		}
+		else
+		{
+			fseek(arquivo, pos, 0);
+			fread(&prod, sizeof(PRODUTO), 1, arquivo);
+			
+			printf("\nNome: %s", prod.nomeProduto);
+			printf("\nCodigo: %s", prod.codigo);
+			
+			printf("\nDeseja Excluir S/N? ");
+			if(toupper(getche()) == 'S')
+			{
+				temp = fopen("auxiliar_prod.bin", "wb"); 
+				if (temp == NULL) {
+                    printf("\nErro ao criar arquivo auxiliar. Exclusao cancelada.\n");
+                    fclose(arquivo); // Fecha o original e sai
+                    system("pause");
+                    return;
+                }
+				
+				rewind(arquivo);
+				
+				while(fread(&prod, sizeof(PRODUTO), 1, arquivo) == 1) 
+				{
+					if(stricmp(codigo, prod.codigo) != 0)
+					{
+						fwrite(&prod, sizeof(PRODUTO), 1, temp);
+					}
+				}
+				
+				fclose(arquivo);
+				fclose(temp);
+                remove("produto.bin");
+                rename("auxiliar_prod.bin", "produto.bin");
+                printf("\n\nProcesso de exclusao concluido.\n");
+                system("pause");
+                system("cls");
+                return;
+			} else {
+                printf("\n\nExclusao cancelada pelo usuario.\n");
+            }
+		}
+	} else {
+	    printf("\n\nCodigo nao informado. Exclusao cancelada.\n");
+	}
+    
+    fclose(arquivo);
+    system("pause");
+    system("cls");
+}
+void ordenar_produto()
+{
+    FILE *arquivo;
+    PRODUTO prod, prod_aux;
+    int i, qtde = 0;
+    
+    arquivo = fopen("produto.bin", "rb+");
+    if (arquivo == NULL)
+    {
+        printf("Erro no arquivo");
+        system("pause");
+        return; // Sai da função em caso de erro.
+    }
+    
+    fseek(arquivo, 0, 2);
+    qtde = ftell(arquivo) / sizeof(PRODUTO);
+    
+    // A verificação qtde <= 1 não é mais um return, apenas uma mensagem.
+    if (qtde <= 1) {
+        printf("\nNao ha necessidade de ordenacao.");
+    } else {
+        printf("\nOrdenando %d produtos por nome...\n", qtde);
+
+        // Algoritmo Bubble Sort
+        int trocou;
+        for (int passo = 0; passo < qtde - 1; passo++) {
+            trocou = 0;
+            for (i = 0; i < qtde - 1 - passo; i++) {
+                
+                // Lê prod
+                fseek(arquivo, i * sizeof(PRODUTO), 0);
+                fread(&prod, sizeof(PRODUTO), 1, arquivo); 
+                
+                // Lê prod_aux
+                fseek(arquivo, (i + 1) * sizeof(PRODUTO), 0);
+                fread(&prod_aux, sizeof(PRODUTO), 1, arquivo);
+                
+                if(stricmp(prod.nomeProduto, prod_aux.nomeProduto) > 0)
+                {
+                    // Troca a posição das estruturas no arquivo
+                    fseek(arquivo, i * sizeof(PRODUTO), 0);
+                    fwrite(&prod_aux, sizeof(PRODUTO), 1, arquivo);
+                    
+                    fseek(arquivo, (i + 1) * sizeof(PRODUTO), 0);
+                    fwrite(&prod, sizeof(PRODUTO), 1, arquivo);
+                    
+                    trocou = 1; 
+                }
+            }
+            if (trocou == 0) break; 
+        }
+        printf("\nArquivo ordenado com sucesso.\n");
+    }
+    
+    fclose(arquivo);
+    system("pause");
+    system("cls");
+}
+void gerenciar_produtos_sub_menu() {
+    int opc_prod;
+    do {
+        opc_prod = menu_produto();
+        switch (opc_prod) {
+            case 1: cadastrar_produto(); break;
+            case 2: exibir_produto(); break;
+            case 3: alterar_produto(); break;
+            case 4: excluir_produto(); break;
+            case 5: ordenar_produto(); break;
+            case 0: printf("\nVoltando ao menu principal . . . \n"); break;
+            default: printf("\nOpcao invalida. "); system("pause");
+        }
+    } while (opc_prod != 0);
+}
+
+
+// ----------------------------------------------------------------------
+// --- 6. MÓDULO GERENCIAR CATEGORIAS ---ok
+// ----------------------------------------------------------------------
+
+int menu_categoria()
+{
+	int opc;
+	system("cls");
+	printf("\n--------------Gerenciar Categorias--------------");
+	printf("\n1 - Cadastrar nova categoria");
+	printf("\n2 - Listar todas categorias");
+	printf("\n3 - Alterar nome da categoria");
+	printf("\n4 - Deletar categoria");
+	printf("\n5 - Ordenar categorias (por Nome)");
+	printf("\n0 - Voltar menu principal");
+	printf("\nSelecione a opcao: ");
+	scanf("%d", &opc);
+	return opc;	
+}
+
+void cadastrar_categoria()
+{
+	FILE *arquivo;
+	CATEGORIA cat;
+	int pos;
+    char continuar = 'S'; // Flag de controle
+	
+	arquivo = fopen("categoria.bin", "ab+");
+	if(arquivo == NULL)
+	{
+		printf("Erro no arquivo");
+		system("pause");
+		return;
+	}
+	
+	do{
+		system("cls");
+		printf("\n--- Cadastrar Categoria ---");
+		printf("\nID da Categoria (Digite 0 para sair): ");
+		scanf("%d", &cat.idCategoria);
+		
+		if (cat.idCategoria != 0) 
+		{ 
+            // Lógica principal só executa se o ID for diferente de 0
+			pos = busca_categoria(arquivo, cat.idCategoria);
+			if(pos == -1)
+			{
+				printf("\nNome da Categoria: "); fflush(stdin);
+				gets(cat.nomeCategoria);
+				
+				fwrite(&cat, sizeof(CATEGORIA), 1, arquivo);
+				printf("\nCategoria cadastrada com sucesso! ");
+			}
+			else
+			{
+				printf("\nCategoria com ID %d ja cadastrada.", cat.idCategoria);
+			}
+			printf("\n\nDeseja Continuar Cadastrando (S/N)? ");
+            continuar = toupper(getche());
+		}
+		else
+		{
+            continuar = 'N'; // Força a saída do laço se o ID for 0
+		}
+	}while(continuar == 'S');
+	
+	fclose(arquivo);
+	system("cls");
+	system("pause");
+}
+
+void exibir_categoria()
+{
+	FILE *arquivo;
+	CATEGORIA cat;
+    int count = 0;
+    
+	arquivo = fopen("categoria.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nNenhuma categoria cadastrada.");
+	}
+	else
+	{
+        // Se o arquivo abriu, executa a lógica de listagem
+		system("cls");
+        printf("--- Categorias Cadastradas ---\n");
+		while(fread(&cat, sizeof(CATEGORIA), 1, arquivo) == 1)
+		{
+            count++;
+			printf("\nID: %d", cat.idCategoria);
+			printf("\nNome: %s", cat.nomeCategoria);
+			printf("\n--------------------------------------");
+		}
+        if (count == 0) printf("\nNenhuma categoria encontrada no arquivo.");
+        
+        fclose(arquivo); // Fechamento seguro
+	}
+    
+	system("pause");
+	system("cls");
+}
+
+void alterar_categoria()
+{
+	FILE *arquivo;
+	CATEGORIA cat;
+	int pos, id_busca;
+	
+	arquivo = fopen("categoria.bin", "rb+");
+	if(arquivo == NULL)
+	{
+		printf("Erro no arquivo");
+		system("pause");
+		return;
+	}
+	
+    system("cls");
+	printf("Digite o ID da categoria que sera alterada (0 para sair): ");
+	scanf("%d", &id_busca);
+	
+	while(id_busca != 0)
+	{
+		pos = busca_categoria(arquivo, id_busca);
+		if(pos == -1)
+		{
+			printf("Categoria nao encontrada\n");
+		}
+		else
+		{
+			fseek(arquivo, pos, 0);
+			fread(&cat, sizeof(CATEGORIA), 1, arquivo);
+			printf("\n--------------------------");
+			printf("\nNome atual: %s", cat.nomeCategoria);
+
+			printf("\nNovo Nome: "); fflush(stdin);
+			gets(cat.nomeCategoria);
+				
+			fseek(arquivo, pos, 0);
+			fwrite(&cat, sizeof(CATEGORIA), 1, arquivo);
+			printf("\nNome alterado com sucesso!\n");
+		}
+		system("pause");
+		system("cls");
+		printf("\nQual o ID para alterar (0 para sair): ");
+		scanf("%d", &id_busca);
+	}
+	
+	fclose(arquivo);
+	system("cls");
+	system("pause");
+}
+
+void excluir_categoria()
+{
+	FILE *arquivo, *temp;
+	CATEGORIA cat;
+	int id_excluir;
+	int pos;
+    
+	arquivo = fopen("categoria.bin", "rb");
+	if(arquivo == NULL)
+	{
+		printf("\nNenhum arquivo de categoria encontrado para exclusao.");	
+		system("pause");
+		return;
+	}
+	
+	system("cls");
+	printf("Informe o ID da categoria que deseja excluir (0 para sair): ");
+	scanf("%d", &id_excluir);
+	
+	if(id_excluir != 0)
+	{
+		pos = busca_categoria(arquivo, id_excluir);
+		if(pos == -1)
+		{
+			printf("Categoria nao encontrada");
+		}
+		else
+		{
+			fseek(arquivo, pos, 0);
+			fread(&cat, sizeof(CATEGORIA), 1, arquivo);
+			
+			printf("\nID: %d", cat.idCategoria);
+			printf("\nNome: %s", cat.nomeCategoria);
+			
+			printf("\nDeseja Excluir S/N? ");
+			if(toupper(getche()) == 'S')
+			{
+				temp = fopen("auxiliar_cat.bin", "wb"); 
+				if (temp != NULL) 
+                {
+                    rewind(arquivo);
+                    
+                    while(fread(&cat, sizeof(CATEGORIA), 1, arquivo) == 1) 
+                    {
+                        if(id_excluir != cat.idCategoria)
+                        {
+                            fwrite(&cat, sizeof(CATEGORIA), 1, temp);
+                        }
+                    }
+                    
+                    fclose(arquivo);
+                    fclose(temp);
+                    
+                    remove("categoria.bin");
+                    rename("auxiliar_cat.bin", "categoria.bin");
+                    printf("\n\nProcesso de exclusao concluido.\n");
+                } 
+                else 
+                {
+                    printf("\nErro ao criar arquivo auxiliar. Exclusao cancelada.\n");
+                    // Apenas fecha o arquivo original, já que o temp não abriu
+                    fclose(arquivo);
+                }
+			} 
+            else 
+            {
+                printf("\n\nExclusao cancelada pelo usuario.\n");
+            }
+		}
+	} 
+    else 
+    {
+	    printf("\n\nExclusao cancelada pelo usuario.\n");
+	}
+    system("pause");
+    system("cls");
+}
+
+void ordenar_categoria()
+{
+    FILE *arquivo;
+    CATEGORIA cat, cat_aux;
+    int i;
+    int qtde = 0; // Se mantiver int, o compilador pode avisar sobre ftell
+
+    arquivo = fopen("categoria.bin", "rb+");
+    
+    if (arquivo == NULL)
+    {
+        printf("Erro no arquivo");
+    }
+    else
+    {
+        fseek(arquivo, 0, 2);
+        qtde = ftell(arquivo) / sizeof(CATEGORIA);
+        
+        printf("\nOrdenando categorias por nome...\n");
+        
+        // Algoritmo Bubble Sort
+        int trocou = 1;
+        while(trocou == 1) {
+            trocou = 0;
+            for (i = 0; i < qtde - 1; i++) {
+                
+                fseek(arquivo, i * sizeof(CATEGORIA), 0);
+                fread(&cat, sizeof(CATEGORIA), 1, arquivo); 
+                
+                fseek(arquivo, (i + 1) * sizeof(CATEGORIA), 0);
+                fread(&cat_aux, sizeof(CATEGORIA), 1, arquivo);
+                
+                if(stricmp(cat.nomeCategoria, cat_aux.nomeCategoria) > 0)
+                {
+                    // Troca a posição das estruturas no arquivo
+                    fseek(arquivo, i * sizeof(CATEGORIA), 0);
+                    fwrite(&cat_aux, sizeof(CATEGORIA), 1, arquivo);
+                    
+                    fseek(arquivo, (i + 1) * sizeof(CATEGORIA), 0);
+                    fwrite(&cat, sizeof(CATEGORIA), 1, arquivo);
+                    
+                    trocou = 1; 
+                }
+            }
+        }
+        
+        printf("\nArquivo ordenado com sucesso.\n");
+        
+        fclose(arquivo); // Fechamento seguro
+    }
+    
+    system("pause");
+    system("cls");
+}
+
+void gerenciar_categorias_sub_menu() {
+    int opc_cat;
+    do {
+        opc_cat = menu_categoria();
+        switch (opc_cat) {
+            case 1: cadastrar_categoria(); break;
+            case 2: exibir_categoria(); break;
+            case 3: alterar_categoria(); break;
+            case 4: excluir_categoria(); break;
+            case 5: ordenar_categoria(); break;
+            case 0: printf("\nVoltando ao menu principal . . . \n"); break;
+            default: printf("\nOpcao invalida. "); system("pause");
+        }
+    } while (opc_cat != 0);
+}
+// ----------------------------------------------------------------------
+// --- 7. MÓDULO GERAR PROMOÇÕES ---
+// ----------------------------------------------------------------------
+
+int menu_promocao()
+{
+	int opc;
+	system("cls");
+	printf("\n--------------Gerenciar Promocoes--------------");
+	printf("\n1 - Cadastrar nova promocao");
+	printf("\n2 - Listar todas promocoes");
+	printf("\n3 - Alterar dados da promocao");
+	printf("\n4 - Deletar promocao");
+	printf("\n5 - Ordenar promocoes (por Nome)");
+	printf("\n0 - Voltar menu principal");
+	printf("\nSelecione a opcao: ");
+	scanf("%d", &opc);
+	return opc;	
+}
+void cadastrar_promocao()
+{
+	FILE *arquivo;
+	PROMOCAO prm;
+	int pos;
+    char continuar = 'S'; 
+	
+	arquivo = fopen("promocao.bin", "ab+");
+	
+	if(arquivo == NULL)
+	{
+		printf("Erro no arquivo");
+	}
+	else
+	{
+		do{
+			system("cls");
+			printf("\n--- Cadastrar Promocao ---");
+			printf("\nID da Promocao (Digite 0 para sair): ");
+			scanf("%d", &prm.idPromocao);
+			
+			if (prm.idPromocao != 0) 
+			{ 
+				pos = busca_promocao(arquivo, prm.idPromocao);
+				if(pos == -1)
+				{
+					printf("\nNome da Promocao: "); fflush(stdin);
+					gets(prm.nomePromocao);
+					
+                    printf("\nData de Inicio (Dia Mes Ano): ");
+                    scanf("%d %d %d", &prm.dataInicio.dia, &prm.dataInicio.mes, &prm.dataInicio.ano);
+
+                    printf("\nData de Fim (Dia Mes Ano): ");
+                    scanf("%d %d %d", &prm.dataFim.dia, &prm.dataFim.mes, &prm.dataFim.ano);
+                    
+					fwrite(&prm, sizeof(PROMOCAO), 1, arquivo);
+					printf("\nPromocao cadastrada com sucesso! ");
+				}
+				else
+				{
+					printf("\nPromocao com ID %d ja cadastrada.", prm.idPromocao);
+				}
+				printf("\n\nDeseja Continuar Cadastrando (S/N)? ");
+                continuar = toupper(getche());
+			}
+			else
+			{
+                continuar = 'N'; 
+			}
+		}while(continuar == 'S');
+        
+        fclose(arquivo);
+	}
+	
+	system("cls");
+	system("pause"); 
+}
+void exibir_promocao()
+{
+	FILE *arquivo;
+	PROMOCAO prm;
+    int count = 0;
+    
+	arquivo = fopen("promocao.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nNenhuma promocao cadastrada.");
+	}
+	else
+	{
+		system("cls");
+        printf("--- Promocoes Cadastradas ---\n");
+		while(fread(&prm, sizeof(PROMOCAO), 1, arquivo) == 1)
+		{
+            count++;
+			printf("\nID: %d", prm.idPromocao);
+			printf("\nNome: %s", prm.nomePromocao);
+            printf("\nValidade: %02d/%02d/%d a %02d/%02d/%d", prm.dataInicio.dia, prm.dataInicio.mes, prm.dataInicio.ano, prm.dataFim.dia, prm.dataFim.mes, prm.dataFim.ano);
+			printf("\n--------------------------------------");
+		}
+        if (count == 0) printf("\nNenhuma promocao encontrada no arquivo.");
+        
+        fclose(arquivo);
+	}
+    
+	system("pause");
+	system("cls");
+}
+void alterar_promocao()
+{
+	FILE *arquivo;
+	PROMOCAO prm;
+	int pos, id_busca;
+	
+	arquivo = fopen("promocao.bin", "rb+");
+	
+	if(arquivo == NULL)
+	{
+		printf("Erro no arquivo");
+	}
+	else
+	{
+        system("cls");
+        printf("Digite o ID da promocao que sera alterada (0 para sair): ");
+        scanf("%d", &id_busca);
+        
+        while(id_busca != 0)
+        {
+            pos = busca_promocao(arquivo, id_busca);
+            if(pos == -1)
+            {
+                printf("Promocao nao encontrada\n");
+            }
+            else
+            {
+                fseek(arquivo, pos, 0);
+                fread(&prm, sizeof(PROMOCAO), 1, arquivo);
+                printf("\n--------------------------");
+                printf("\nNome atual: %s", prm.nomePromocao);
+
+                printf("\nNovo Nome: "); fflush(stdin);
+                gets(prm.nomePromocao);
+                
+                printf("\nNova Data de Inicio (Dia Mes Ano): ");
+                scanf("%d %d %d", &prm.dataInicio.dia, &prm.dataInicio.mes, &prm.dataInicio.ano);
+
+                printf("\nNova Data de Fim (Dia Mes Ano): ");
+                scanf("%d %d %d", &prm.dataFim.dia, &prm.dataFim.mes, &prm.dataFim.ano);
+                    
+                fseek(arquivo, pos, 0);
+                fwrite(&prm, sizeof(PROMOCAO), 1, arquivo);
+                printf("\nPromocao alterada com sucesso!\n");
+            }
+            system("pause");
+            system("cls");
+            printf("\nQual o ID para alterar (0 para sair): ");
+            scanf("%d", &id_busca);
+        }
+        
+        fclose(arquivo);
+	}
+	
+	system("cls");
+	system("pause");
+}
+void excluir_promocao()
+{
+	FILE *arquivo;
+    FILE *temp = NULL; 
+	PROMOCAO prm;
+	int id_excluir;
+	int pos;
+    
+	arquivo = fopen("promocao.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nNenhum arquivo de promocao encontrado para exclusao.");	
+	}
+	else
+	{
+        int arquivo_fechado_interno = 0; 
+        
+        system("cls");
+        printf("Informe o ID da promocao que deseja excluir (0 para sair): ");
+        scanf("%d", &id_excluir);
+        
+        if(id_excluir != 0)
+        {
+            pos = busca_promocao(arquivo, id_excluir);
+            if(pos == -1)
+            {
+                printf("Promocao nao encontrada");
+            }
+            else
+            {
+                fseek(arquivo, pos, 0);
+                fread(&prm, sizeof(PROMOCAO), 1, arquivo);
+                
+                printf("\nID: %d", prm.idPromocao);
+                printf("\nNome: %s", prm.nomePromocao);
+                
+                printf("\nDeseja Excluir S/N? ");
+                if(toupper(getche()) == 'S')
+                {
+                    temp = fopen("auxiliar_prm.bin", "wb"); 
+                    if (temp != NULL) 
+                    {
+                        rewind(arquivo);
+                        
+                        while(fread(&prm, sizeof(PROMOCAO), 1, arquivo) == 1) 
+                        {
+                            if(id_excluir != prm.idPromocao)
+                            {
+                                fwrite(&prm, sizeof(PROMOCAO), 1, temp);
+                            }
+                        }
+                        
+                        fclose(arquivo);
+                        fclose(temp);
+                        arquivo_fechado_interno = 1; 
+                        
+                        remove("promocao.bin");
+                        rename("auxiliar_prm.bin", "promocao.bin");
+                        printf("\n\nProcesso de exclusao concluido.\n");
+                    } 
+                    else 
+                    {
+                        printf("\nErro ao criar arquivo auxiliar. Exclusao cancelada.\n");
+                    }
+                } 
+                else 
+                {
+                    printf("\n\nExclusao cancelada pelo usuario.\n");
+                }
+            }
+        } 
+        else 
+        {
+            printf("\n\nExclusao cancelada pelo usuario.\n");
+        }
+        
+        if (arquivo_fechado_interno == 0) 
+        {
+            fclose(arquivo);
+        }
+	}
+    
+    system("pause");
+    system("cls");
+}
+void ordenar_promocao()
+{
+    FILE *arquivo;
+    PROMOCAO prm, prm_aux;
+    int i;
+    int qtde = 0;
+    
+    arquivo = fopen("promocao.bin", "rb+");
+    
+    if (arquivo == NULL)
+    {
+        printf("Erro no arquivo");
+    }
+    else
+    {
+        fseek(arquivo, 0, 2);
+        qtde = ftell(arquivo) / sizeof(PROMOCAO);
+        
+        printf("\nOrdenando promocoes por nome...\n");
+        
+        // Algoritmo Bubble Sort (sem a verificação qtde<=1 e sem break/continue em if)
+        int trocou = 1;
+        while(trocou == 1) {
+            trocou = 0;
+            for (i = 0; i < qtde - 1; i++) {
+                
+                fseek(arquivo, i * sizeof(PROMOCAO), 0);
+                fread(&prm, sizeof(PROMOCAO), 1, arquivo); 
+                
+                fseek(arquivo, (i + 1) * sizeof(PROMOCAO), 0);
+                fread(&prm_aux, sizeof(PROMOCAO), 1, arquivo);
+                
+                if(stricmp(prm.nomePromocao, prm_aux.nomePromocao) > 0)
+                {
+                    // Troca a posição das estruturas no arquivo
+                    fseek(arquivo, i * sizeof(PROMOCAO), 0);
+                    fwrite(&prm_aux, sizeof(PROMOCAO), 1, arquivo);
+                    
+                    fseek(arquivo, (i + 1) * sizeof(PROMOCAO), 0);
+                    fwrite(&prm, sizeof(PROMOCAO), 1, arquivo);
+                    
+                    trocou = 1; 
+                }
+            }
+        }
+        
+        printf("\nArquivo ordenado com sucesso.\n");
+        
+        fclose(arquivo);
+    }
+    
+    system("pause");
+    system("cls");
+}
+void gerar_promocoes_sub_menu() {
+    int opc_prm;
+    do {
+        opc_prm = menu_promocao();
+        switch (opc_prm) {
+            case 1: cadastrar_promocao(); break;
+            case 2: exibir_promocao(); break;
+            case 3: alterar_promocao(); break;
+            case 4: excluir_promocao(); break;
+            case 5: ordenar_promocao(); break;
+            case 0: printf("\nVoltando ao menu principal . . . \n"); break;
+            default: printf("\nOpcao invalida. "); system("pause");
+        }
+    } while (opc_prm != 0);
+}
+
+// ----------------------------------------------------------------------
+// --- 8. MÓDULO EMITIR RELATÓRIOS ---
+// ----------------------------------------------------------------------
+
+int menu_relatorios()
+{
+	int opc;
+	system("cls");
+	printf("\n--------------- Emitir Relatorios --------------");
+	printf("\n1 - Relatorio de Produtos em Estoque Baixo");
+	printf("\n2 - Relatorio de Vendas por Cliente (CPF)");
+	printf("\n3 - Relatorio de Vendas por Periodo");
+	printf("\n4 - Relatorio de Produtos Proximos ao Vencimento");
+	printf("\n0 - Voltar menu principal");
+	printf("\nSelecione a opcao: ");
+	scanf("%d", &opc);
+	return opc;	
+}
+
+void relatorio_estoque_baixo()
+{
+	FILE *arquivo;
+	PRODUTO prod;
+    int limite = 10; // Define o limite de estoque
+    int count = 0;
+    
+	arquivo = fopen("produto.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nNenhum produto cadastrado para analise.");
+	}
+	else
+	{
+		system("cls");
+        printf("--- Relatorio: Produtos com Estoque < %d ---\n", limite);
+		while(fread(&prod, sizeof(PRODUTO), 1, arquivo) == 1)
+		{
+            if (prod.quantidade < limite)
+            {
+                count++;
+                printf("\nCodigo: %s", prod.codigo);
+                printf("\nNome: %s", prod.nomeProduto);
+                printf("\nEstoque Atual: %d", prod.quantidade);
+                printf("\nPreco Venda: R$ %.2f", prod.precoVenda);
+                printf("\n--------------------------------------");
+            }
+		}
+        if (count == 0) printf("\nNenhum produto com estoque abaixo de %d encontrado.", limite);
+        
+        fclose(arquivo);
+	}
+    
+	system("pause");
+	system("cls");
+}
+void relatorio_vendas_por_cliente()
+{
+	FILE *arquivo;
+	VENDA venda;
+	char cpf_busca[20];
+    int count = 0;
+	
+	arquivo = fopen("venda.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nErro no arquivo (Nenhum registro de vendas encontrado).");
+	}
+	else
+	{
+		system("cls");
+        printf("--- Relatorio: Vendas por Cliente ---\n");
+        printf("Digite o CPF do cliente: "); fflush(stdin);
+        gets(cpf_busca);
+        
+		while(fread(&venda, sizeof(VENDA), 1, arquivo) == 1)
+		{
+            if (stricmp(cpf_busca, venda.cpfCliente) == 0)
+            {
+                count++;
+                printf("\nID Venda: %d", venda.idVenda);
+                printf("\nProduto: %s", venda.codigoProduto); 
+                printf("\nQuantidade: %d", venda.quantidadeVendida);
+                printf("\nValor Total: R$ %.2f", venda.precoTotal);
+                printf("\nData: %02d/%02d/%d", venda.dataVenda.dia, venda.dataVenda.mes, venda.dataVenda.ano);
+                printf("\n--------------------------------------");
+            }
+		}
+        
+        if (count == 0) 
+            printf("\nNenhuma venda encontrada para o CPF %s.", cpf_busca);
+        
+        fclose(arquivo);
+	}
+    
+	system("pause");
+	system("cls");
+}
+void relatorio_vendas_por_periodo()
+{
+    FILE *arquivo;
+	VENDA venda;
+    NASCIMENTO data_inicio, data_fim;
+    int count = 0;
+    float total_vendas = 0.0;
+    
+	arquivo = fopen("venda.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nErro no arquivo (Nenhum registro de vendas encontrado).");
+	}
+	else
+	{
+		system("cls");
+        printf("--- Relatorio: Vendas por Periodo ---\n");
+        printf("Data de Inicio (Dia Mes Ano): ");
+        scanf("%d %d %d", &data_inicio.dia, &data_inicio.mes, &data_inicio.ano);
+        printf("Data de Fim (Dia Mes Ano): ");
+        scanf("%d %d %d", &data_fim.dia, &data_fim.mes, &data_fim.ano);
+        
+        // Conversão das datas de início e fim para um número inteiro comparável (AAAA MM DD)
+        long inicio_int = (long)data_inicio.ano * 10000 + (long)data_inicio.mes * 100 + data_inicio.dia;
+        long fim_int = (long)data_fim.ano * 10000 + (long)data_fim.mes * 100 + data_fim.dia;
+        
+        printf("\nResultados:\n");
+        
+        while(fread(&venda, sizeof(VENDA), 1, arquivo) == 1)
+		{
+            // Converte a data da venda para um número inteiro comparável
+            long venda_int = (long)venda.dataVenda.ano * 10000 + (long)venda.dataVenda.mes * 100 + venda.dataVenda.dia;
+
+            // Verifica se a data da venda está dentro do período (>= inicio E <= fim)
+            if (venda_int >= inicio_int && venda_int <= fim_int)
+            {
+                count++;
+                total_vendas += venda.precoTotal;
+                
+                printf("\nID Venda: %d", venda.idVenda);
+                printf("\nCliente CPF: %s", venda.cpfCliente);
+                printf("\nValor Total: R$ %.2f", venda.precoTotal);
+                printf("\nData: %02d/%02d/%d", venda.dataVenda.dia, venda.dataVenda.mes, venda.dataVenda.ano);
+                printf("\n--------------------------------------");
+            }
+		}
+
+        printf("\n\nTotal de Vendas no Periodo: %d", count);
+        printf("\nValor Total Arrecadado: R$ %.2f", total_vendas);
+        
+        fclose(arquivo);
+	}
+    
+	system("pause");
+	system("cls");
+}
+void relatorio_produtos_vencimento()
+{
+	FILE *arquivo;
+	PRODUTO prod;
+    int count = 0;
+    int dias_limite = 90;
+    
+    // --- SIMULACAO DA DATA LIMITE ---
+    // Em um sistema real, esta data seria calculada usando a data atual (HOJE + 90 dias).
+    // Para simplificar, usamos uma data limite fixa (Exemplo: 26/02/2026).
+    // VOCÊ DEVE SUBSTITUIR ISSO PELA LÓGICA DE CÁLCULO DE DATA REAL EM SEU CÓDIGO
+    NASCIMENTO data_limite_exemplo = {26, 2, 2026}; 
+    long limite_int = data_to_long(data_limite_exemplo);
+    // --------------------------------
+    
+	arquivo = fopen("produto.bin", "rb");
+    
+	if(arquivo == NULL)
+	{
+		printf("\nErro no arquivo (Nenhum produto cadastrado para analise).");
+	}
+	else
+	{
+		system("cls");
+        printf("--- Relatorio: Produtos Proximos ao Vencimento ---\n");
+        printf("Limite de Vencimento (Proximos %d dias): %02d/%02d/%d\n", dias_limite, data_limite_exemplo.dia, data_limite_exemplo.mes, data_limite_exemplo.ano);
+		
+        while(fread(&prod, sizeof(PRODUTO), 1, arquivo) == 1)
+		{
+            long validade_int = data_to_long(prod.dataValidade);
+            
+            if (validade_int <= limite_int)
+            {
+                count++;
+                printf("\nCodigo: %s", prod.codigo);
+                printf("\nNome: %s", prod.nomeProduto);
+                printf("\nEstoque: %d", prod.quantidade);
+                printf("\nValidade: %02d/%02d/%d", prod.dataValidade.dia, prod.dataValidade.mes, prod.dataValidade.ano);
+                printf("\n--------------------------------------");
+            }
+		}
+        
+        if (count == 0) 
+            printf("\nNenhum produto encontrado com vencimento proximo (%d dias).\n", dias_limite);
+        
+        fclose(arquivo); 
+	}
+    
+	system("pause");
+	system("cls");
+}
+
+void emitir_relatorios_sub_menu() {
+    int opc_rel;
+    do {
+        opc_rel = menu_relatorios();
+        switch (opc_rel) {
+            case 1: relatorio_estoque_baixo(); break;
+            case 2: relatorio_vendas_por_cliente(); break;
+            case 3: relatorio_vendas_por_periodo(); break;
+            case 4: relatorio_produtos_vencimento(); break;
+            case 0: printf("\nVoltando ao menu principal . . . \n"); break;
+            default: printf("\nOpcao invalida. "); system("pause");
+        }
+    } while (opc_rel != 0);
+}
+
+
+// ----------------------------------------------------------------------
+// --- 9. MENU PRINCIPAL (Main) ---
+// ----------------------------------------------------------------------
+
+int menu_principal() {
+    int opc;
+    system("cls");
+    printf("\n============= DROGAMAIS - MENU PRINCIPAL =============");
+    printf("\n1 - Gerenciar Clientes");
+    printf("\n2 - Gerenciar Produtos");
+    printf("\n3 - Gerenciar Laboratorio");
+    printf("\n4 - Gerenciar Categorias");
+    printf("\n5 - Gerar Promocoes");
+    printf("\n6 - Emitir Relatorios");
+    printf("\n0 - Sair do Sistema");
+    printf("\nSelecione a opcao: ");
+    scanf("%d", &opc);
+    return opc;
+}
+
+int main()
+{
+	int opc_principal;
+	
+	do{
+		opc_principal = menu_principal();
+		switch(opc_principal)
+		{
+			case 1: gerenciar_clientes_sub_menu(); break;
+			case 2: gerenciar_produtos_sub_menu(); break; 
+			case 3: gerenciar_laboratorio_sub_menu(); break;
+			case 4: gerenciar_categorias_sub_menu(); break; 
+			case 5: gerar_promocoes_sub_menu(); break; 
+			case 6: emitir_relatorios_sub_menu(); break;
+			case 0: printf("\nEncerrando o sistema DrogaMais. Ate mais! \n"); break;
+			default: printf("\nOpcao invalida. "); system("pause");
+		}
+	}while(opc_principal != 0);
+    return 0;
+}
